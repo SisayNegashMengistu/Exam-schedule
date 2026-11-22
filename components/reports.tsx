@@ -3,20 +3,24 @@ import { useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, CircleDashed, Clock3, Download, Printer, Search } from 'lucide-react'
 import { useApp } from '@/lib/store'
 import { ethFull } from '@/lib/ethiopian'
+import { batchText, placeLabel, slotLabel } from '@/lib/catalog'
 import { STATUSES, fmtDate, scheduleLabel, scheduleStatus, weekday, type Exam, type ExamStatus, type Schedule } from '@/lib/types'
 import { StatusBadge } from './ui-bits'
 
 type Row = Exam & { sched: Schedule }
 const COLOR: Record<ExamStatus, string> = { Completed: 'var(--ok)', Missed: 'var(--bad)', 'Late start': 'var(--warn)', 'Not updated': 'var(--line)' }
-const GROUPS = { none: 'No grouping', dept: 'Department', status: 'Status', date: 'Date', inv: 'Invigilator' } as const
+const GROUPS = { none: 'No grouping', dept: 'Department', status: 'Status', date: 'Date', inv: 'Invigilator', batch: 'Batch', block: 'Block' } as const
 
 export function ReportsPage() {
   const { db, selId } = useApp()
   const cur = db.schedules.find((s) => s.id === selId)
   const [scope, setScope] = useState<'current' | 'year' | 'all'>('current')
   const [deptF, setDeptF] = useState('all'); const [statusF, setStatusF] = useState('all'); const [invF, setInvF] = useState('all')
+  const [batchF, setBatchF] = useState('all'); const [blockF, setBlockF] = useState('all'); const [slotF, setSlotF] = useState('all'); const [semF, setSemF] = useState('all')
   const [from, setFrom] = useState(''); const [to, setTo] = useState(''); const [q, setQ] = useState('')
   const [group, setGroup] = useState<keyof typeof GROUPS>('none')
+  const [sort, setSort] = useState<'date' | 'course' | 'batch' | 'room'>('date')
+  const semesters = [...new Set(db.schedules.map((s) => s.semester).filter(Boolean))]
 
   const dept = (id: string) => db.departments.find((d) => d.id === id)
   const invNames = (e: Exam) => e.invigilatorIds.map((i) => db.invigilators.find((x) => x.id === i)?.name).filter(Boolean) as string[]
@@ -24,12 +28,18 @@ export function ReportsPage() {
   // `base` ignores the department & status filters so the department dashboard always shows every department.
   const base = useMemo(() => {
     const list = db.schedules.filter((s) => scope === 'all' || (scope === 'year' ? s.academicYear === cur?.academicYear : s.id === cur?.id))
+    const cmp = {
+      date: (a: Row, b: Row) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start, undefined, { numeric: true }) || a.code.localeCompare(b.code),
+      course: (a: Row, b: Row) => a.title.localeCompare(b.title),
+      batch: (a: Row, b: Row) => (a.batch ?? '').localeCompare(b.batch ?? '') || (a.section ?? '').localeCompare(b.section ?? ''),
+      room: (a: Row, b: Row) => placeLabel(db, a).localeCompare(placeLabel(db, b)),
+    }[sort]
     return list.flatMap((s) => s.exams.map((e) => ({ ...e, sched: s })))
-      .filter((e) => (!from || e.date >= from) && (!to || e.date <= to) && (invF === 'all' || e.invigilatorIds.includes(invF))
-        && `${e.title} ${e.code} ${invNames(e).join(' ')}`.toLowerCase().includes(q.toLowerCase()))
-      .sort((a, b) => a.date.localeCompare(b.date) || a.code.localeCompare(b.code))
-  }, [db, scope, cur, from, to, invF, q]) // eslint-disable-line react-hooks/exhaustive-deps
-  const rows = base.filter((e) => (deptF === 'all' || e.deptId === deptF) && (statusF === 'all' || e.status === statusF))
+      .filter((e) => (!from || e.date >= from) && (!to || e.date <= to) && (invF === 'all' || e.invigilatorIds.includes(invF)) && (semF === 'all' || e.sched.semester === semF)
+        && `${e.title} ${e.code} ${batchText(e)} ${placeLabel(db, e)} ${invNames(e).join(' ')}`.toLowerCase().includes(q.toLowerCase()))
+      .sort(cmp)
+  }, [db, scope, cur, from, to, invF, q, semF, sort]) // eslint-disable-line react-hooks/exhaustive-deps
+  const rows = base.filter((e) => (deptF === 'all' || e.deptId === deptF) && (statusF === 'all' || e.status === statusF) && (batchF === 'all' || e.batch === batchF) && (blockF === 'all' || e.blockId === blockF) && (slotF === 'all' || e.slotId === slotF))
   const n = (list: Row[], st: ExamStatus) => list.filter((e) => e.status === st).length
 
   const groups = useMemo(() => {
@@ -40,6 +50,8 @@ export function ReportsPage() {
       else if (group === 'dept') add(dept(r.deptId)?.name ?? '—', r)
       else if (group === 'status') add(r.status, r)
       else if (group === 'date') add(`${fmtDate(r.date)} · ${weekday(r.date)}`, r)
+      else if (group === 'batch') add(r.batch ? `${r.batch} Year` : 'No batch', r)
+      else if (group === 'block') add(db.blocks.find((b) => b.id === r.blockId)?.name ?? 'No block', r)
       else (invNames(r).length ? invNames(r) : ['Unassigned']).forEach((k) => add(k, r))
     })
     return [...m.entries()]
@@ -47,8 +59,8 @@ export function ReportsPage() {
 
   const exportCsv = () => {
     const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
-    const head = ['Schedule', 'Academic year', 'Course name', 'Course code', 'Date', 'Ethiopian date', 'Time', 'Department', 'Year/section', 'Room', 'Invigilators', 'Status', 'Last updated']
-    const body = rows.map((e) => [e.sched.name, e.sched.academicYear, e.title, e.code, e.date, ethFull(e.date), `${e.start}-${e.end}`, dept(e.deptId)?.name ?? '', e.group, e.room, invNames(e).join('; '), e.status, e.updatedAt ?? ''].map(String).map(esc).join(','))
+    const head = ['Schedule', 'Academic year', 'Semester', 'Course name', 'Course code', 'Date', 'Ethiopian date', 'Time', 'Department', 'Batch', 'Students', 'Block / room', 'Invigilators', 'Status', 'Last updated']
+    const body = rows.map((e) => [e.sched.name, e.sched.academicYear, e.sched.semester, e.title, e.code, e.date, ethFull(e.date), `${e.start}-${e.end}`, dept(e.deptId)?.name ?? '', batchText(e), e.students ?? '', placeLabel(db, e), invNames(e).join('; '), e.status, e.updatedAt ?? ''].map(String).map(esc).join(','))
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob(['\ufeff' + [head.map(esc).join(','), ...body].join('\r\n')], { type: 'text/csv;charset=utf-8' }))
     a.download = `exam-report-${new Date().toISOString().slice(0, 10)}.csv`; a.click()
@@ -82,7 +94,12 @@ export function ReportsPage() {
           <Sel label="Schedules" value={scope} set={(v) => setScope(v as typeof scope)}><option value="current">Selected schedule</option><option value="year">All in this academic year</option><option value="all">All schedules</option></Sel>
           <Sel label="Department" value={deptF} set={setDeptF}><option value="all">All departments</option>{db.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</Sel>
           <Sel label="Status" value={statusF} set={setStatusF}><option value="all">All statuses</option>{STATUSES.map((x) => <option key={x}>{x}</option>)}</Sel>
-          <Sel label="Invigilator" value={invF} set={setInvF}><option value="all">All invigilators</option>{db.invigilators.map((i) => <option key={i.id} value={i.id}>{i.name || 'Unnamed'}</option>)}</Sel>
+          <Sel label="Invigilator" value={invF} set={setInvF}><option value="all">All invigilators</option><option value="missing">Missing invigilator</option>{db.invigilators.map((i) => <option key={i.id} value={i.id}>{i.name || 'Unnamed'}</option>)}</Sel>
+          <Sel label="Batch" value={batchF} set={setBatchF}><option value="all">All batches</option>{db.batches.map((b) => <option key={b}>{b}</option>)}</Sel>
+          <Sel label="Block" value={blockF} set={setBlockF}><option value="all">All blocks</option>{db.blocks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Sel>
+          <Sel label="Time frame" value={slotF} set={setSlotF}><option value="all">All time frames</option>{db.timeSlots.map((s) => <option key={s.id} value={s.id}>{s.session} · {slotLabel(s)}</option>)}</Sel>
+          <Sel label="Semester" value={semF} set={setSemF}><option value="all">All semesters</option>{semesters.map((s) => <option key={s}>{s}</option>)}</Sel>
+          <Sel label="Sort" value={sort} set={(v) => setSort(v as typeof sort)}><option value="date">Date</option><option value="course">Course</option><option value="batch">Batch</option><option value="room">Block / room</option></Sel>
           <label className="block"><span className="mb-1 block text-[10px] font-semibold text-muted">From date</span><input type="date" className="input !h-9 !text-[11px]" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
           <label className="block"><span className="mb-1 block text-[10px] font-semibold text-muted">To date</span><input type="date" className="input !h-9 !text-[11px]" value={to} onChange={(e) => setTo(e.target.value)} /></label>
           <Sel label="Group by" value={group} set={(v) => setGroup(v as typeof group)}>{Object.entries(GROUPS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Sel>

@@ -1,13 +1,18 @@
 'use client'
 import { useRef, useState } from 'react'
-import { Building2, CalendarRange, Copy, Download, Plus, Settings2, Trash2, Upload, Users } from 'lucide-react'
+import { Building2, CalendarRange, Clock3, Copy, Download, GraduationCap, Plus, Settings2, Trash2, Upload, Users } from 'lucide-react'
+import { readSheet } from 'read-excel-file/browser'
+import { slotLabel } from '@/lib/catalog'
 import { useApp } from '@/lib/store'
-import { scheduleStatus, uid, type DB, type Dept, type Invigilator, type Schedule, type Settings } from '@/lib/types'
+import { scheduleStatus, uid, type Block, type DB, type Dept, type Invigilator, type Schedule, type Session, type Settings, type TimeSlot } from '@/lib/types'
 import { Field } from './ui-bits'
 import { ImportPanel } from './import-panel'
 
 const TABS = [
   { id: 'schedules', label: 'Schedules', icon: CalendarRange },
+  { id: 'places', label: 'Blocks & rooms', icon: Building2 },
+  { id: 'times', label: 'Time frames', icon: Clock3 },
+  { id: 'batches', label: 'Batches', icon: GraduationCap },
   { id: 'departments', label: 'Departments & contacts', icon: Building2 },
   { id: 'import', label: 'Import exams', icon: Upload },
   { id: 'invigilators', label: 'Invigilators', icon: Users },
@@ -18,9 +23,12 @@ export function ManagePage() {
   const [tab, setTab] = useState<(typeof TABS)[number]['id']>('schedules')
   return (
     <div>
-      <div className="mb-6"><h1 className="text-[28px] font-semibold tracking-tight">Manage</h1><p className="mt-1 text-[13px] text-muted">Everything shown to students is editable here. Changes save automatically.</p></div>
+      <div className="mb-6"><h1 className="text-[28px] font-semibold tracking-tight">Manage</h1><p className="mt-1 text-[13px] text-muted">Add invigilators, upload the exam pages, then assign staff. Academic year, semester, blocks, batches and time frames are edited here.</p></div>
       <div className="mb-6 flex flex-wrap gap-2">{TABS.map((t) => <button key={t.id} onClick={() => setTab(t.id)} className={`btn ${tab === t.id ? 'btn-primary' : ''}`}><t.icon size={15} />{t.label}</button>)}</div>
       {tab === 'schedules' && <Schedules />}
+      {tab === 'places' && <Places />}
+      {tab === 'times' && <TimeFrames />}
+      {tab === 'batches' && <Batches />}
       {tab === 'departments' && <Departments />}
       {tab === 'import' && <ImportPanel />}
       {tab === 'invigilators' && <Invigilators />}
@@ -79,14 +87,59 @@ function Departments() {
   )
 }
 
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = []; let row: string[] = [], cur = '', q = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++ } else q = false } else cur += c }
+    else if (c === '"') q = true
+    else if (c === ',' || c === ';' || c === '\t') { row.push(cur); cur = '' }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = '' }
+    else cur += c
+  }
+  row.push(cur); rows.push(row); return rows
+}
+
 function Invigilators() {
-  const { db, update } = useApp()
+  const { db, update, toast } = useApp()
+  const file = useRef<HTMLInputElement>(null)
   const patch = (id: string, p: Partial<Invigilator>) => update((d) => ({ ...d, invigilators: d.invigilators.map((x) => (x.id === id ? { ...x, ...p } : x)) }))
   const add = () => update((d) => ({ ...d, invigilators: [...d.invigilators, { id: uid(), name: '', phone: '', deptId: '' }] }))
   const del = (id: string) => update((d) => ({ ...d, invigilators: d.invigilators.filter((x) => x.id !== id), schedules: d.schedules.map((s) => ({ ...s, exams: s.exams.map((e) => ({ ...e, invigilatorIds: e.invigilatorIds.filter((i) => i !== id) })) })) }))
+  const template = () => {
+    const body = 'Name,Phone,Department\r\nAbebe Kebede,+251911000000,Computer Science\r\nSara Ali,+251922000000,Information Technology\r\n'
+    const a = document.createElement('a'); a.download = 'invigilators-template.csv'; a.href = URL.createObjectURL(new Blob(['\ufeff' + body], { type: 'text/csv' })); a.click()
+  }
+  const load = async (f?: File) => {
+    if (!f) return
+    try {
+      const raw = /\.xlsx$/i.test(f.name) ? ((await readSheet(f)) as (string | number | null)[][]) : parseCsv(await f.text())
+      const hi = raw.findIndex((r) => r.some((c) => /name/i.test(String(c ?? ''))))
+      if (hi < 0) throw new Error('Add a header row with Name, Phone and Department.')
+      const col = (re: RegExp) => raw[hi].findIndex((c) => re.test(String(c ?? '')))
+      const nameI = col(/name/i), phoneI = col(/phone|mobile/i), deptI = col(/department|program/i)
+      let added = 0
+      update((d) => {
+        const list = [...d.invigilators]
+        raw.slice(hi + 1).forEach((r) => {
+          const name = String(r[nameI] ?? '').replace(/\s+/g, ' ').trim()
+          if (!name) return
+          const phone = phoneI >= 0 ? String(r[phoneI] ?? '').trim() : ''
+          const deptName = deptI >= 0 ? String(r[deptI] ?? '').trim().toLowerCase() : ''
+          const deptId = d.departments.find((x) => x.name.toLowerCase() === deptName || x.short.toLowerCase() === deptName)?.id ?? ''
+          const hit = list.find((x) => x.name.trim().toLowerCase() === name.toLowerCase())
+          if (hit) { hit.phone = phone || hit.phone; hit.deptId = deptId || hit.deptId; return }
+          list.push({ id: uid(), name, phone, deptId }); added++
+        })
+        return { ...d, invigilators: list }
+      })
+      toast(added ? `${added} invigilators added` : 'Staff list updated')
+    } catch (e) { toast(e instanceof Error ? e.message : 'Could not read that file', 'bad') }
+  }
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted">Add staff here once, then assign them to exams from the Schedule page (Edit an exam → Invigilators).</p>
+      <p className="text-xs text-muted">Add staff here, or upload a CSV / Excel list. Exam page upload stays locked until at least one invigilator has a name. Then use Assign invigilators to put staff on each exam.</p>
+      <div className="flex flex-wrap gap-2"><button className="btn" onClick={() => file.current?.click()}><Upload size={15} /> Upload staff list</button><button className="btn" onClick={template}><Download size={15} /> Template</button><input ref={file} hidden type="file" accept=".csv,.tsv,.xlsx,text/csv" onChange={(e) => { load(e.target.files?.[0]); e.target.value = '' }} /></div>
       {db.invigilators.map((x) => (
         <div key={x.id} className="card grid items-end gap-3 p-4 md:grid-cols-[1.3fr_1fr_1fr_auto]">
           <Field label="Full name"><input className="input" value={x.name} onChange={(e) => patch(x.id, { name: e.target.value })} /></Field>
@@ -99,6 +152,53 @@ function Invigilators() {
       <button className="btn btn-primary" onClick={add}><Plus size={15} /> Add invigilator</button>
     </div>
   )
+}
+
+function Places() {
+  const { db, update } = useApp()
+  const usedBlock = (id: string) => db.schedules.some((s) => s.exams.some((e) => e.blockId === id))
+  const usedRoom = (id: string) => db.schedules.some((s) => s.exams.some((e) => e.roomId === id))
+  const addBlock = () => update((d) => ({ ...d, blocks: [...d.blocks, { id: uid(), name: 'New block' }] }))
+  const delBlock = (b: Block) => {
+    if (usedBlock(b.id)) return alert('Exams are already placed in this block.')
+    if (confirm(`Delete ${b.name} and its rooms?`)) update((d) => ({ ...d, blocks: d.blocks.filter((x) => x.id !== b.id), rooms: d.rooms.filter((r) => r.blockId !== b.id) }))
+  }
+  return <div className="space-y-4">
+    <p className="text-xs text-muted">Blocks and rooms used by the current exams are listed here. Add more, then pick them when you schedule an exam.</p>
+    {db.blocks.map((b) => <div key={b.id} className="card p-5">
+      <div className="mb-3 flex items-end gap-2"><Field label="Block" className="flex-1"><input className="input" value={b.name} onChange={(e) => update((d) => ({ ...d, blocks: d.blocks.map((x) => x.id === b.id ? { ...x, name: e.target.value } : x) }))} /></Field><button className="btn btn-danger" onClick={() => delBlock(b)}><Trash2 size={14} /></button></div>
+      <div className="space-y-2">{db.rooms.filter((r) => r.blockId === b.id).map((r) => <div key={r.id} className="flex gap-2"><input aria-label={`${b.name} room`} className="input" value={r.name} onChange={(e) => update((d) => ({ ...d, rooms: d.rooms.map((x) => x.id === r.id ? { ...x, name: e.target.value } : x) }))} /><button className="btn btn-danger" onClick={() => { if (usedRoom(r.id)) return alert('An exam is already in this room.'); update((d) => ({ ...d, rooms: d.rooms.filter((x) => x.id !== r.id) })) }}><Trash2 size={14} /></button></div>)}</div>
+      <button className="btn btn-sm mt-3" onClick={() => update((d) => ({ ...d, rooms: [...d.rooms, { id: uid(), blockId: b.id, name: 'Room 1' }] }))}><Plus size={13} /> Add room</button>
+    </div>)}
+    <button className="btn btn-primary" onClick={addBlock}><Plus size={15} /> Add block</button>
+  </div>
+}
+
+function TimeFrames() {
+  const { db, update } = useApp()
+  const patch = (id: string, p: Partial<TimeSlot>) => update((d) => ({ ...d, timeSlots: d.timeSlots.map((s) => s.id === id ? { ...s, ...p } : s) }))
+  return <div className="space-y-3">
+    <p className="text-xs text-muted">Morning exams use frames such as 2:00–4:00 and 4:00–6:00. Afternoon exams use 8:00–10:00 and 10:00–12:00. Add or rename frames and they show up on the schedule, assignment and report screens.</p>
+    {db.timeSlots.map((s) => <div key={s.id} className="card grid items-end gap-3 p-4 md:grid-cols-[1fr_1fr_1fr_auto]">
+      <Field label="Session"><select className="input" value={s.session} onChange={(e) => patch(s.id, { session: e.target.value as Session })}><option>Morning</option><option>Afternoon</option></select></Field>
+      <Field label="Start"><input className="input" value={s.start} onChange={(e) => patch(s.id, { start: e.target.value })} /></Field>
+      <Field label="End"><input className="input" value={s.end} onChange={(e) => patch(s.id, { end: e.target.value })} /></Field>
+      <button className="btn btn-danger" aria-label={`Remove ${slotLabel(s)}`} onClick={() => update((d) => ({ ...d, timeSlots: d.timeSlots.filter((x) => x.id !== s.id) }))}><Trash2 size={14} /></button>
+    </div>)}
+    <button className="btn btn-primary" onClick={() => update((d) => ({ ...d, timeSlots: [...d.timeSlots, { id: uid(), session: 'Morning', start: '2:00', end: '4:00' }] }))}><Plus size={15} /> Add time frame</button>
+  </div>
+}
+
+function Batches() {
+  const { db, update } = useApp()
+  return <div className="space-y-3">
+    <p className="text-xs text-muted">Batches such as 2nd and 3rd year. A batch that is already used by an exam is kept automatically.</p>
+    {db.batches.map((b, i) => <div key={`${b}-${i}`} className="card flex items-end gap-2 p-4">
+      <Field label="Batch" className="flex-1"><input className="input" value={b} onChange={(e) => update((d) => ({ ...d, batches: d.batches.map((x, n) => n === i ? e.target.value : x) }))} /></Field>
+      <button className="btn btn-danger" onClick={() => update((d) => ({ ...d, batches: d.batches.filter((_, n) => n !== i) }))}><Trash2 size={14} /></button>
+    </div>)}
+    <button className="btn btn-primary" onClick={() => update((d) => ({ ...d, batches: [...d.batches, ''] }))}><Plus size={15} /> Add batch</button>
+  </div>
 }
 
 function SettingsPanel() {
@@ -114,7 +214,7 @@ function SettingsPanel() {
         <div className="grid gap-3 sm:grid-cols-2">{S('university', 'University name')}{S('institute', 'Institute')}{S('school', 'School')}{S('footer', 'Table footer note')}</div></div>
       <div className="card p-5"><h3 className="mb-4 text-sm font-semibold">Dean & Registrar</h3>
         <div className="grid gap-3 sm:grid-cols-2">{S('deanName', 'Dean name')}{S('deanPhone', 'Dean phone')}{S('registrarName', 'Registrar name')}{S('registrarPhone', 'Registrar phone')}{S('registrarEmail', 'Registrar email', 'email')}</div></div>
-      <div className="card p-5"><h3 className="mb-1 text-sm font-semibold">Office PIN</h3><p className="mb-3 text-xs text-muted">Unlocks editing on this device. This is a convenience lock for the interface, not strong security.</p><div className="max-w-xs">{S('pin', 'PIN')}</div></div>
+      <div className="card p-5"><h3 className="mb-1 text-sm font-semibold">Registrar account</h3><p className="text-xs leading-relaxed text-muted">Editing is limited to the signed-in editor. Change the password from the header. Reset password is on the sign-in page and applies on this device.</p></div>
       <div className="card p-5"><h3 className="mb-1 text-sm font-semibold">Backup & publishing</h3>
         <p className="mb-4 text-xs leading-relaxed text-muted">Edits are stored in this browser. To make your changes visible to everyone, export the data and paste it into <code>lib/seed.ts</code>, or connect a shared database. Import restores a backup.</p>
         <div className="flex flex-wrap gap-2"><button className="btn" onClick={exportJson}><Download size={15} /> Export JSON</button><button className="btn" onClick={() => file.current?.click()}><Upload size={15} /> Import JSON</button><input ref={file} type="file" accept="application/json" hidden onChange={(e) => importJson(e.target.files?.[0])} />

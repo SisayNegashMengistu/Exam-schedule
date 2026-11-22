@@ -76,7 +76,9 @@ export function ImportPanel() {
     } catch (e) { setProblems([e instanceof Error ? e.message : 'Could not read this file.']) }
   }
 
+  const staffReady = db.invigilators.some((i) => i.name.trim())
   const confirm_ = () => {
+    if (!staffReady) return toast('Add invigilators before uploading exam pages', 'bad')
     if (target === 'new') {
       if (!meta.academicYear.trim()) return toast('Enter the academic year first', 'bad')
       const s: Schedule = { id: uid(), name: meta.name || 'Exam', academicYear: meta.academicYear.trim(), semester: meta.semester, exams: rows }
@@ -86,6 +88,7 @@ export function ImportPanel() {
   }
 
   return <div className="space-y-4">
+    {!staffReady && <div className="card border-warn/40 p-4 text-xs"><p className="font-semibold">Add invigilators first</p><p className="mt-1 text-muted">Upload stays closed until staff are on the Invigilators tab. After the list is in, upload the exam pages here, then assign those staff from Assign invigilators.</p></div>}
     <div className="card p-5">
       <h3 className="text-sm font-semibold">Import a timetable</h3>
       <p className="mb-4 mt-1 text-xs leading-relaxed text-muted">Upload an Excel (.xlsx) or CSV file for any academic year or semester. Columns: Department, Batch - Section, Block - Room, Course Code, Course Title, Date, Time (LT), Session (optional), Invigilators (optional). Department, batch and room may be left blank under the first row of a group, as in the registrar’s layout. Ethiopian date columns are ignored because they are calculated automatically.</p>
@@ -101,7 +104,7 @@ export function ImportPanel() {
     </div>
     {problems.length > 0 && <div className="card border-bad/40 p-4 text-xs"><p className="mb-1 font-semibold text-bad">{problems.length} problem{problems.length > 1 ? 's' : ''}</p>{problems.slice(0, 8).map((p) => <p key={p} className="text-muted">{p}</p>)}</div>}
     {rows.length > 0 && <div className="card overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line p-4"><div><p className="text-sm font-semibold">{rows.length} exams ready to import</p>{newDepts.length > 0 && <p className="mt-0.5 text-[11px] text-muted">New departments will be created: {newDepts.map((d) => d.name).join(', ')}</p>}</div><button className="btn btn-primary" onClick={confirm_}>Import {rows.length} exams</button></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line p-4"><div><p className="text-sm font-semibold">{rows.length} exams ready to import</p>{newDepts.length > 0 && <p className="mt-0.5 text-[11px] text-muted">New departments will be created: {newDepts.map((d) => d.name).join(', ')}</p>}</div><button className="btn btn-primary" disabled={!staffReady} onClick={confirm_}>Import {rows.length} exams</button></div>
       <div className="max-h-80 overflow-auto"><table className="w-full min-w-[760px] text-left text-[11px]"><thead className="sticky top-0 bg-soft"><tr>{['Code', 'Title', 'Date', 'Time', 'Department', 'Group', 'Room'].map((h) => <th key={h} className="th !py-2">{h}</th>)}</tr></thead>
         <tbody className="divide-y divide-line">{rows.map((e) => <tr key={e.id}><td className="px-4 py-2 font-medium">{e.code}</td><td className="px-4 py-2">{e.title}</td><td className="px-4 py-2">{e.date}</td><td className="px-4 py-2">{e.start}–{e.end} {e.session}</td><td className="px-4 py-2">{[...db.departments, ...newDepts].find((d) => d.id === e.deptId)?.name}</td><td className="px-4 py-2">{e.group}</td><td className="px-4 py-2">{e.room}</td></tr>)}</tbody></table></div></div>}
   </div>

@@ -1,3 +1,5 @@
+import { hashPassword } from './auth'
+import { DEFAULT_BATCHES, DEFAULT_TIME_SLOTS } from './catalog'
 import type { DB } from './types'
 
 /**
@@ -18,6 +20,17 @@ export const seedDB: DB = {
     footer: 'Local Time (LT) · Dates shown in Gregorian and Ethiopian calendars',
     pin: '1234',
   },
+  accounts: [{
+    id: 'registrar',
+    name: 'School of Computing Registrar',
+    username: 'sc.reg@ddu.edu.et',
+    passwordHash: hashPassword('sc123**'),
+    role: 'editor',
+  }],
+  blocks: [],
+  rooms: [],
+  timeSlots: DEFAULT_TIME_SLOTS,
+  batches: DEFAULT_BATCHES,
   departments: [
     { id: 'cs', name: 'Computer Science', short: 'CS', headName: '', headPhone: '', email: '', info: '' },
     { id: 'it', name: 'Information Technology', short: 'IT', headName: '', headPhone: '', email: '', info: '' },

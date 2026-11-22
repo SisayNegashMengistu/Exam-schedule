@@ -1,24 +1,42 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { Bell, CalendarDays, CheckCircle2, Clock3, FileText, LayoutDashboard, BarChart3, Lock, LockOpen, Mail, MapPin, Pencil, Phone, Plus, Printer, Save, Search, SlidersHorizontal, Trash2, Settings2, AlertTriangle, CircleDashed } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Bell, CalendarDays, CheckCircle2, Clock3, FileText, LayoutDashboard, BarChart3, Lock, LockOpen, Mail, MapPin, Pencil, Phone, Plus, Printer, Save, Search, SlidersHorizontal, Trash2, Settings2, AlertTriangle, CircleDashed, UserCheck, KeyRound } from 'lucide-react'
+import { batchText, placeLabel, slotLabel } from '@/lib/catalog'
 import { useApp } from '@/lib/store'
 import { ethFull, ethLabel } from '@/lib/ethiopian'
 import { STATUSES, fmtDate, scheduleLabel, scheduleStatus, uid, weekday, type Exam, type ExamStatus, type Schedule } from '@/lib/types'
+import { AssignPage } from './assign'
+import { ChangePasswordModal, LoginPage } from './login-page'
 import { Field, Logo, Modal, StatusBadge, ThemeToggle } from './ui-bits'
 import { ManagePage } from './manage'
 import { ReportsPage } from './reports'
 
 export function ScheduleDashboard() {
-  const { db, office, unlock, lock, selId, ready, toast } = useApp()
-  const [view, setView] = useState<'schedule' | 'reports' | 'manage'>('schedule')
-  const [pinOpen, setPinOpen] = useState(false)
+  const { db, office, user, logout, selId, ready, toast } = useApp()
+  const [view, setView] = useState<'schedule' | 'reports' | 'assign' | 'manage'>('schedule')
+  const [entered, setEntered] = useState(false)
+  const [boot, setBoot] = useState(false)
+  const [pwOpen, setPwOpen] = useState(false)
+  useEffect(() => {
+    try { if (sessionStorage.getItem('ddu-soc-entered') === '1') setEntered(true) } catch {}
+    setBoot(true)
+  }, [])
   const sched = db.schedules.find((s) => s.id === selId)
   const s = db.settings
-  const activeView = view === 'manage' && !office ? 'schedule' : view
+  const activeView = (view === 'manage' || view === 'assign') && !office ? 'schedule' : view
 
-  type V = 'schedule' | 'reports' | 'manage'
-  const nav: { id: V; label: string; icon: typeof Lock }[] = [{ id: 'schedule', label: 'Exam schedule', icon: LayoutDashboard }, { id: 'reports', label: 'Reports', icon: BarChart3 }, ...(office ? [{ id: 'manage' as V, label: 'Manage', icon: Settings2 }] : [])]
+  type V = 'schedule' | 'reports' | 'assign' | 'manage'
+  const nav: { id: V; label: string; icon: typeof Lock }[] = [
+    { id: 'schedule', label: 'Exam schedule', icon: LayoutDashboard },
+    { id: 'reports', label: 'Reports', icon: BarChart3 },
+    ...(office ? [{ id: 'assign' as V, label: 'Assign invigilators', icon: UserCheck }, { id: 'manage' as V, label: 'Manage', icon: Settings2 }] : []),
+  ]
+  const signOut = () => { logout(); setEntered(false); setView('schedule'); try { sessionStorage.removeItem('ddu-soc-entered') } catch {}; toast('Signed out') }
+  const openLogin = () => { setEntered(false); try { sessionStorage.removeItem('ddu-soc-entered') } catch {} }
+
+  if (!ready || !boot) return <div className="grid min-h-screen place-items-center text-sm text-muted">Loading schedule…</div>
+  if (!user && !entered) return <LoginPage onBrowse={() => { setEntered(true); try { sessionStorage.setItem('ddu-soc-entered', '1') } catch {} }} />
   return (
     <div className="min-h-screen">
       <aside className="no-print fixed inset-y-0 left-0 z-20 hidden w-[250px] flex-col border-r border-line bg-card px-5 py-6 lg:flex">
@@ -34,43 +52,34 @@ export function ScheduleDashboard() {
           {s.registrarPhone && <a className="mt-3 flex items-center gap-1.5 text-[11px] font-semibold text-brand" href={`tel:${s.registrarPhone.replace(/\s/g, '')}`}><Phone size={12} />{s.registrarPhone}</a>}
           {s.registrarEmail && <a className="mt-2 flex items-center gap-1.5 text-[11px] font-semibold text-brand" href={`mailto:${s.registrarEmail}`}><Mail size={12} />{s.registrarEmail}</a>}
         </div>
-        <button onClick={() => (office ? (lock(), setView('schedule'), toast('Office mode locked')) : setPinOpen(true))} className="btn mt-4 w-full justify-start">{office ? <LockOpen size={15} /> : <Lock size={15} />}{office ? 'Office mode · Lock' : 'Office login'}</button>
+        {office && <p className="mt-4 truncate px-1 text-[10px] text-muted">{user?.username}<br />Editor · full edit access</p>}
+        <button onClick={() => (office ? signOut() : openLogin())} className="btn mt-4 w-full justify-start">{office ? <LockOpen size={15} /> : <Lock size={15} />}{office ? 'Sign out' : 'Sign in'}</button>
       </aside>
 
       <div className="lg:pl-[250px]">
         <header className="no-print sticky top-0 z-10 flex h-[66px] items-center justify-between border-b border-line bg-card/90 px-4 backdrop-blur md:px-9">
           <div className="flex items-center gap-3">
             <span className="lg:hidden"><Logo size={34} /></span>
-            <div className="hidden items-center gap-2 text-xs text-muted sm:flex"><span>{s.school}</span><span>/</span><span className="font-semibold text-fg">{{ manage: 'Manage', reports: 'Reports', schedule: 'Exam schedule' }[activeView]}</span></div>
+            <div className="hidden items-center gap-2 text-xs text-muted sm:flex"><span>{s.school}</span><span>/</span><span className="font-semibold text-fg">{{ manage: 'Manage', reports: 'Reports', assign: 'Assign invigilators', schedule: 'Exam schedule' }[activeView]}</span></div>
             <span className="text-sm font-semibold sm:hidden">Exam schedule</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="flex gap-1 lg:hidden">{nav.map((n) => <button key={n.id} aria-label={n.label} onClick={() => setView(n.id)} className={`icon-btn ${activeView === n.id ? 'bg-soft text-brand' : ''}`}><n.icon size={17} /></button>)}</div>
             {sched && <span className="mr-1 hidden rounded-full border border-line px-3 py-1.5 text-[11px] font-medium text-muted md:inline-flex">{sched.academicYear}{sched.semester && ` · ${sched.semester}`}</span>}
+            {office && <button className="btn btn-sm hidden sm:inline-flex" onClick={() => setPwOpen(true)}><KeyRound size={13} /> Change password</button>}
             <ThemeToggle />
-            <button className="icon-btn lg:hidden" aria-label={office ? 'Lock office mode' : 'Office login'} onClick={() => (office ? (lock(), setView('schedule')) : setPinOpen(true))}>{office ? <LockOpen size={17} /> : <Lock size={17} />}</button>
+            <button className="icon-btn lg:hidden" aria-label={office ? 'Sign out' : 'Sign in'} onClick={() => (office ? signOut() : openLogin())}>{office ? <LockOpen size={17} /> : <Lock size={17} />}</button>
           </div>
         </header>
 
         <main className="mx-auto max-w-[1280px] px-4 py-8 md:px-9 md:py-10" id="schedule">
-          {!ready ? null : activeView === 'manage' ? <ManagePage /> : activeView === 'reports' ? <ReportsPage /> : <SchedulePage sched={sched} />}
-          <p className="mt-6 text-center text-[10px] text-muted">{s.university} · {s.institute}{office ? ' · Office mode: edits save to this browser' : ''}</p>
+          {activeView === 'manage' ? <ManagePage /> : activeView === 'assign' ? <AssignPage /> : activeView === 'reports' ? <ReportsPage /> : <SchedulePage sched={sched} />}
+          <p className="mt-6 text-center text-[10px] text-muted">{s.university} · {s.institute}{office ? ` · Signed in as ${user?.username}` : ''}</p>
         </main>
       </div>
-      {pinOpen && <PinModal onClose={() => setPinOpen(false)} onOk={(p) => (unlock(p) ? (setPinOpen(false), toast('Office mode unlocked'), true) : false)} />}
+      {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}
     </div>
   )
-}
-
-function PinModal({ onClose, onOk }: { onClose: () => void; onOk: (p: string) => boolean }) {
-  const [pin, setPin] = useState(''); const [bad, setBad] = useState(false)
-  return <Modal title="Office login" onClose={onClose}>
-    <form onSubmit={(e) => { e.preventDefault(); setBad(!onOk(pin)) }}>
-      <Field label="Office PIN"><input autoFocus type="password" className="input" value={pin} onChange={(e) => { setPin(e.target.value); setBad(false) }} /></Field>
-      {bad && <p className="mt-2 text-xs text-bad">Incorrect PIN.</p>}
-      <button className="btn btn-primary mt-5 w-full" type="submit">Unlock editing</button>
-    </form>
-  </Modal>
 }
 
 const stateTone: Record<string, string> = { Completed: 'st-Completed', 'In progress': 'st-Late-start', Upcoming: 'st-Not-updated' }
@@ -78,6 +87,8 @@ const stateTone: Record<string, string> = { Completed: 'st-Completed', 'In progr
 function SchedulePage({ sched }: { sched?: Schedule }) {
   const { db, update, office, selId, setSelId, toast } = useApp()
   const [deptF, setDeptF] = useState('all'); const [dateF, setDateF] = useState('all'); const [resF, setResF] = useState('all')
+  const [batchF, setBatchF] = useState('all'); const [blockF, setBlockF] = useState('all'); const [slotF, setSlotF] = useState('all')
+  const [sort, setSort] = useState<'date' | 'course' | 'batch' | 'room'>('date')
   const [tab, setTab] = useState('All exams'); const [q, setQ] = useState('')
   const [drafts, setDrafts] = useState<Record<string, ExamStatus>>({})
   const [editing, setEditing] = useState<Exam | 'new' | null>(null)
@@ -86,10 +97,20 @@ function SchedulePage({ sched }: { sched?: Schedule }) {
   const years = [...new Set(db.schedules.map((x) => x.academicYear))]
   const dept = (id: string) => db.departments.find((d) => d.id === id)
   const invName = (id: string) => db.invigilators.find((i) => i.id === id)?.name
-  const exams = useMemo(() => [...(sched?.exams ?? [])].sort((a, b) => a.date.localeCompare(b.date) || a.session.localeCompare(b.session) || a.code.localeCompare(b.code)), [sched])
+  const exams = useMemo(() => {
+    const list = [...(sched?.exams ?? [])]
+    const cmp = {
+      date: (a: Exam, b: Exam) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start, undefined, { numeric: true }) || a.code.localeCompare(b.code),
+      course: (a: Exam, b: Exam) => a.title.localeCompare(b.title) || a.code.localeCompare(b.code),
+      batch: (a: Exam, b: Exam) => (a.batch ?? '').localeCompare(b.batch ?? '') || (a.section ?? '').localeCompare(b.section ?? ''),
+      room: (a: Exam, b: Exam) => placeLabel(db, a).localeCompare(placeLabel(db, b)) || a.date.localeCompare(b.date),
+    }[sort]
+    return list.sort(cmp)
+  }, [sched, sort, db])
   const dates = [...new Set(exams.map((e) => e.date))]
   const filtered = exams.filter((e) => (deptF === 'all' || e.deptId === deptF) && (dateF === 'all' || e.date === dateF) && (resF === 'all' || e.status === resF) && (tab === 'All exams' || e.session === tab)
-    && `${e.title} ${e.code} ${dept(e.deptId)?.name} ${e.group} ${e.room} ${ethLabel(e.date)} ${weekday(e.date)} ${e.invigilatorIds.map(invName).join(' ')}`.toLowerCase().includes(q.toLowerCase()))
+    && (batchF === 'all' || e.batch === batchF) && (blockF === 'all' || e.blockId === blockF) && (slotF === 'all' || e.slotId === slotF)
+    && `${e.title} ${e.code} ${dept(e.deptId)?.name} ${batchText(e)} ${placeLabel(db, e)} ${e.students ?? ''} ${ethLabel(e.date)} ${weekday(e.date)} ${e.invigilatorIds.map(invName).join(' ')}`.toLowerCase().includes(q.toLowerCase()))
   const scope = exams.filter((e) => deptF === 'all' || e.deptId === deptF)
   const count = (st: ExamStatus) => scope.filter((e) => e.status === st).length
   const done = scope.filter((e) => e.status !== 'Not updated').length
@@ -149,6 +170,10 @@ function SchedulePage({ sched }: { sched?: Schedule }) {
           <select aria-label="Filter by program" className="input !h-9 !w-auto !text-[11px]" value={deptF} onChange={(e) => setDeptF(e.target.value)}><option value="all">All programs</option>{db.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
           <select aria-label="Filter by date" className="input !h-9 !w-auto !text-[11px]" value={dateF} onChange={(e) => setDateF(e.target.value)}><option value="all">All dates</option>{dates.map((d) => <option key={d} value={d}>{fmtDate(d).replace(/, \d+$/, '')} · {weekday(d)}</option>)}</select>
           <select aria-label="Filter by result" className="input !h-9 !w-auto !text-[11px]" value={resF} onChange={(e) => setResF(e.target.value)}><option value="all">All results</option>{STATUSES.map((x) => <option key={x}>{x}</option>)}</select>
+          <select aria-label="Filter by batch" className="input !h-9 !w-auto !text-[11px]" value={batchF} onChange={(e) => setBatchF(e.target.value)}><option value="all">All batches</option>{db.batches.map((b) => <option key={b}>{b}</option>)}</select>
+          <select aria-label="Filter by block" className="input !h-9 !w-auto !text-[11px]" value={blockF} onChange={(e) => setBlockF(e.target.value)}><option value="all">All blocks</option>{db.blocks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
+          <select aria-label="Filter by time frame" className="input !h-9 !w-auto !text-[11px]" value={slotF} onChange={(e) => setSlotF(e.target.value)}><option value="all">All time frames</option>{db.timeSlots.map((t) => <option key={t.id} value={t.id}>{t.session} · {slotLabel(t)}</option>)}</select>
+          <select aria-label="Sort exams" className="input !h-9 !w-auto !text-[11px]" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}><option value="date">Sort: date</option><option value="course">Sort: course</option><option value="batch">Sort: batch</option><option value="room">Sort: block / room</option></select>
           <span className="ml-auto text-[11px] text-muted">Showing <strong className="text-fg">{filtered.length}</strong> exams</span>
         </div>
         <div className="no-print mt-5 flex gap-5 border-b border-line text-xs">{['All exams', 'Morning', 'Afternoon'].map((t) => <button key={t} onClick={() => setTab(t)} className={`-mb-px cursor-pointer border-b-2 pb-3 font-semibold transition ${tab === t ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-fg'}`}>{t}</button>)}</div>
@@ -163,8 +188,8 @@ function SchedulePage({ sched }: { sched?: Schedule }) {
           return <tr key={e.id} className="align-top transition hover:bg-soft/40">
             <td className="whitespace-nowrap px-6 py-4"><p className="text-xs font-semibold">{fmtDate(e.date)}</p><p className="mt-1 text-[10px] text-muted">{weekday(e.date)} · {ethFull(e.date)}</p><p className="mt-1 inline-flex items-center gap-1 text-[10px] text-muted"><Clock3 size={11} />{e.start} – {e.end} LT</p></td>
             <td className="px-4 py-4"><p className="text-[12px] font-semibold">{e.title}</p><p className="mt-1 text-[10px] font-medium tracking-wide text-muted">{e.code}</p></td>
-            <td className="px-4 py-4"><p className="text-[11px] font-medium">{d?.name ?? '—'}</p><p className="mt-1 text-[10px] text-muted">{e.group}</p></td>
-            <td className="px-4 py-4"><span className="inline-flex items-center gap-1.5 text-[11px]"><MapPin size={12} className="text-muted" />{e.room}</span></td>
+            <td className="px-4 py-4"><p className="text-[11px] font-medium">{d?.name ?? '—'}</p><p className="mt-1 text-[10px] text-muted">{batchText(e)}</p>{e.students ? <p className="mt-1 text-[10px] text-muted">{e.students} students</p> : null}</td>
+            <td className="px-4 py-4"><span className="inline-flex items-center gap-1.5 text-[11px]"><MapPin size={12} className="text-muted" />{placeLabel(db, e)}</span></td>
             <td className="px-4 py-4 text-[11px]">{e.invigilatorIds.length ? e.invigilatorIds.map((i) => <p key={i} className="leading-5">{invName(i) ?? '—'}</p>) : <span className="text-muted">{office ? 'Not assigned' : '—'}</span>}</td>
             <td className="px-4 py-4">{office ? <div className="no-print flex items-center gap-1.5"><select aria-label={`Result for ${e.title}`} value={draft} onChange={(ev) => setDrafts((x) => ({ ...x, [e.id]: ev.target.value as ExamStatus }))} className={`input !h-8 !w-auto !px-2 !text-[10px] font-semibold st-${draft.replace(' ', '-')}`}>{STATUSES.map((x) => <option key={x}>{x}</option>)}</select>
               <button className="btn btn-primary btn-sm" disabled={!changed} onClick={() => saveStatuses([e.id])} aria-label={`Save result for ${e.title}`}><Save size={12} />Save</button></div> : <StatusBadge status={e.status} />}
@@ -179,7 +204,7 @@ function SchedulePage({ sched }: { sched?: Schedule }) {
     </section>
 
     <Contacts />
-    {editing && <ExamDialog exam={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSave={saveExam} />}
+    {editing && <ExamDialog schedule={sched} exam={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSave={saveExam} />}
   </>
 }
 
@@ -203,25 +228,47 @@ function Contacts() {
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{db.departments.map((d) => <ContactCard key={d.id} title={d.name} role="Department head" name={d.headName} phone={d.headPhone} email={d.email} info={d.info} />)}</div></section>
 }
 
-function ExamDialog({ exam, onClose, onSave }: { exam: Exam | null; onClose: () => void; onSave: (e: Exam) => void }) {
+function ExamDialog({ exam, schedule, onClose, onSave }: { exam: Exam | null; schedule?: Schedule; onClose: () => void; onSave: (e: Exam) => void }) {
   const { db } = useApp()
-  const [f, setF] = useState<Exam>(exam ?? { id: uid(), code: '', title: '', date: '', start: '', end: '', session: 'Morning', deptId: db.departments[0]?.id ?? '', group: '', room: '', invigilatorIds: [], status: 'Not updated' })
+  const firstSlot = db.timeSlots.find((s) => s.session === 'Morning') ?? db.timeSlots[0]
+  const firstBlock = db.blocks[0]
+  const firstRoom = db.rooms.find((r) => r.blockId === firstBlock?.id)
+  const [f, setF] = useState<Exam>(exam ?? {
+    id: uid(), code: '', title: '', date: '', start: firstSlot?.start ?? '', end: firstSlot?.end ?? '', session: firstSlot?.session ?? 'Morning',
+    deptId: db.departments[0]?.id ?? '', group: '', room: '', invigilatorIds: [], status: 'Not updated',
+    blockId: firstBlock?.id, roomId: firstRoom?.id, slotId: firstSlot?.id, batch: db.batches.includes('2nd') ? '2nd' : db.batches[0] ?? '', section: '', students: undefined,
+  })
   const set = <K extends keyof Exam>(k: K, v: Exam[K]) => setF((x) => ({ ...x, [k]: v }))
+  const rooms = db.rooms.filter((r) => r.blockId === f.blockId)
+  const slots = db.timeSlots.filter((s) => s.session === f.session)
+  const pickSlot = (id: string) => {
+    const s = db.timeSlots.find((x) => x.id === id)
+    setF((x) => ({ ...x, slotId: id, start: s?.start ?? x.start, end: s?.end ?? x.end, session: s?.session ?? x.session }))
+  }
   const toggle = (id: string) => set('invigilatorIds', f.invigilatorIds.includes(id) ? f.invigilatorIds.filter((i) => i !== id) : [...f.invigilatorIds, id])
-  const ok = f.code && f.title && f.date && f.deptId
+  const ok = f.code && f.title && f.date && f.deptId && f.blockId && f.roomId && (f.slotId || (f.start && f.end))
+  const save = () => {
+    const b = db.blocks.find((x) => x.id === f.blockId)
+    const r = db.rooms.find((x) => x.id === f.roomId)
+    const students = f.students ? Number(f.students) : undefined
+    onSave({ ...f, students: students && students > 0 ? students : undefined, room: b && r ? `${b.name} · ${r.name}` : f.room, group: batchText(f) })
+  }
   return <Modal wide title={exam ? 'Edit exam' : 'Add exam'} onClose={onClose}>
-    <form onSubmit={(e) => { e.preventDefault(); ok && onSave(f) }} className="grid gap-3 sm:grid-cols-2">
+    <form onSubmit={(e) => { e.preventDefault(); ok && save() }} className="grid gap-3 sm:grid-cols-2">
+      {schedule && <p className="text-xs text-muted sm:col-span-2">{schedule.academicYear}{schedule.semester ? ` · ${schedule.semester}` : ''} · {schedule.name}</p>}
       <Field label="Course code"><input required className="input" value={f.code} onChange={(e) => set('code', e.target.value)} /></Field>
       <Field label="Course title"><input required className="input" value={f.title} onChange={(e) => set('title', e.target.value)} /></Field>
       <Field label="Date"><input required type="date" className="input" value={f.date} onChange={(e) => set('date', e.target.value)} /></Field>
-      <Field label="Session"><select className="input" value={f.session} onChange={(e) => set('session', e.target.value as Exam['session'])}><option>Morning</option><option>Afternoon</option></select></Field>
-      <Field label="Start (local time)"><input className="input" placeholder="2:00" value={f.start} onChange={(e) => set('start', e.target.value)} /></Field>
-      <Field label="End (local time)"><input className="input" placeholder="4:00" value={f.end} onChange={(e) => set('end', e.target.value)} /></Field>
       <Field label="Department"><select className="input" value={f.deptId} onChange={(e) => set('deptId', e.target.value)}>{db.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></Field>
-      <Field label="Year / section"><input className="input" placeholder="3rd Year · 1st Sem" value={f.group} onChange={(e) => set('group', e.target.value)} /></Field>
-      <Field label="Room" className="sm:col-span-2"><input className="input" placeholder="Block 30 · Room 24" value={f.room} onChange={(e) => set('room', e.target.value)} /></Field>
+      <Field label="Batch"><select className="input" value={f.batch ?? ''} onChange={(e) => set('batch', e.target.value)}><option value="">Select batch</option>{db.batches.map((b) => <option key={b}>{b}</option>)}</select></Field>
+      <Field label="Section"><input className="input" placeholder="1" value={f.section ?? ''} onChange={(e) => set('section', e.target.value)} /></Field>
+      <Field label="Number of students"><input className="input" inputMode="numeric" placeholder="40" value={f.students ?? ''} onChange={(e) => set('students', e.target.value ? Number(e.target.value) : undefined)} /></Field>
+      <Field label="Session"><select className="input" value={f.session} onChange={(e) => { const session = e.target.value as Exam['session']; const s = db.timeSlots.find((x) => x.session === session); setF((x) => ({ ...x, session, slotId: s?.id, start: s?.start ?? x.start, end: s?.end ?? x.end })) }}><option>Morning</option><option>Afternoon</option></select></Field>
+      <Field label="Time frame"><select className="input" value={f.slotId ?? ''} onChange={(e) => pickSlot(e.target.value)}>{slots.map((s) => <option key={s.id} value={s.id}>{slotLabel(s)}</option>)}{f.slotId ? null : f.start && <option value="">{f.start} – {f.end} (current)</option>}</select></Field>
+      <Field label="Block"><select className="input" value={f.blockId ?? ''} onChange={(e) => { const blockId = e.target.value; const roomId = db.rooms.find((r) => r.blockId === blockId)?.id; setF((x) => ({ ...x, blockId, roomId })) }}>{db.blocks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}{db.blocks.length === 0 && <option value="">Add a block in Manage</option>}</select></Field>
+      <Field label="Room"><select className="input" value={f.roomId ?? ''} onChange={(e) => set('roomId', e.target.value)}>{rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}{rooms.length === 0 && <option value="">No rooms in this block</option>}</select></Field>
       <div className="sm:col-span-2"><p className="mb-1.5 text-[11px] font-semibold text-muted">Invigilators</p>
-        {db.invigilators.length === 0 ? <p className="text-xs text-muted">No invigilators yet — add them in Manage → Invigilators.</p> :
+        {db.invigilators.length === 0 ? <p className="text-xs text-muted">No invigilators yet — add staff in Manage → Invigilators, then assign them here or on Assign invigilators.</p> :
           <div className="flex flex-wrap gap-2">{db.invigilators.map((i) => { const on = f.invigilatorIds.includes(i.id); return <button type="button" key={i.id} aria-pressed={on} onClick={() => toggle(i.id)} className={`btn btn-sm ${on ? 'btn-primary' : ''}`}>{i.name || 'Unnamed'}</button> })}</div>}</div>
       <div className="mt-2 flex justify-end gap-2 sm:col-span-2"><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="submit" className="btn btn-primary" disabled={!ok}><Save size={14} /> Save exam</button></div>
     </form>
