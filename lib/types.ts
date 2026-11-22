@@ -21,6 +21,23 @@ export interface Dept {
   email: string; info: string
 }
 export interface Invigilator { id: string; name: string; phone: string; deptId: string }
+/** An academic term such as "1st Semester", "2nd Semester" or "3rd Semester (Summer)". */
+export interface Semester { id: string; name: string }
+/** Teaching staff who are assigned to courses (separate from invigilators, who watch the exams). */
+export interface Instructor { id: string; name: string; phone: string; deptId: string }
+export interface Course {
+  id: string; code: string; title: string
+  ects: number; crHrs: number; lecHrs: number; labHrs: number; tutHrs: number; hs: number
+  prereq: string
+  instructorId: string      // matched / chosen instructor ('' = not assigned)
+  instructorName: string    // name exactly as written in the uploaded breakdown (kept for reference)
+}
+/** The course breakdown for one department + batch (year) + semester. */
+export interface Breakdown {
+  id: string; deptId: string; batch: string; semesterId: string
+  sourceFile?: string; uploadedAt?: string
+  courses: Course[]
+}
 export interface Account { id: string; name: string; username: string; passwordHash: string; role: 'editor' }
 export interface Block { id: string; name: string }
 export interface Room { id: string; blockId: string; name: string }
@@ -38,10 +55,21 @@ export interface DB {
   rooms: Room[]
   timeSlots: TimeSlot[]
   batches: string[]
+  semesters: Semester[]
   departments: Dept[]
   invigilators: Invigilator[]
+  instructors: Instructor[]
+  breakdowns: Breakdown[]
   schedules: Schedule[]
 }
+
+export const DEFAULT_SEMESTERS: Semester[] = [
+  { id: 'sem-1', name: '1st Semester' },
+  { id: 'sem-2', name: '2nd Semester' },
+  { id: 'sem-3', name: '3rd Semester (Summer)' },
+]
+export const breakdownFor = (db: Pick<DB, 'breakdowns'>, deptId: string, batch: string, semesterId: string) =>
+  db.breakdowns.find((b) => b.deptId === deptId && b.batch === batch && b.semesterId === semesterId)
 
 export const uid = () => Math.random().toString(36).slice(2, 10)
 

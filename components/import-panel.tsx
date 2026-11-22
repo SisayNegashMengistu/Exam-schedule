@@ -34,7 +34,7 @@ export function ImportPanel() {
   const { db, update, setSelId, toast } = useApp()
   const file = useRef<HTMLInputElement>(null)
   const [target, setTarget] = useState('new')
-  const [meta, setMeta] = useState({ name: 'Mid-exam', semester: '1st Semester', academicYear: '' })
+  const [meta, setMeta] = useState({ name: 'Mid-exam', semester: db.semesters[0]?.name ?? '', academicYear: '' })
   const [rows, setRows] = useState<Exam[]>([]); const [newDepts, setNewDepts] = useState<Dept[]>([])
   const [problems, setProblems] = useState<string[]>([]); const [fileName, setFileName] = useState('')
 
@@ -96,7 +96,7 @@ export function ImportPanel() {
         <Field label="Import into"><select className="input" value={target} onChange={(e) => setTarget(e.target.value)}><option value="new">A new schedule</option>{db.schedules.map((s) => <option key={s.id} value={s.id}>Add to: {s.name} · {s.semester} · {s.academicYear}</option>)}</select></Field>
         {target === 'new' && <>
           <Field label="Academic year"><input className="input" placeholder="2027 / 2020 E.C." value={meta.academicYear} onChange={(e) => setMeta({ ...meta, academicYear: e.target.value })} /></Field>
-          <Field label="Semester"><input className="input" placeholder="2nd Semester" value={meta.semester} onChange={(e) => setMeta({ ...meta, semester: e.target.value })} /></Field>
+          <Field label="Semester"><select className="input" value={meta.semester} onChange={(e) => setMeta({ ...meta, semester: e.target.value })}>{db.semesters.map((x) => <option key={x.id} value={x.name}>{x.name}</option>)}</select></Field>
           <Field label="Schedule name"><input className="input" placeholder="Final exam" value={meta.name} onChange={(e) => setMeta({ ...meta, name: e.target.value })} /></Field></>}
       </div>
       <div className="mt-4 flex flex-wrap gap-2"><button className="btn btn-primary" onClick={() => file.current?.click()}><Upload size={15} /> Choose file</button><button className="btn" onClick={template}><Download size={15} /> Download template</button>

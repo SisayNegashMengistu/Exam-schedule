@@ -1,19 +1,24 @@
 'use client'
 import { useRef, useState } from 'react'
-import { Building2, CalendarRange, Clock3, Copy, Download, GraduationCap, Plus, Settings2, Trash2, Upload, Users } from 'lucide-react'
+import { BookOpenCheck, Building2, CalendarRange, CalendarDays, Clock3, Copy, Download, GraduationCap, Presentation, Plus, Settings2, Trash2, Upload, Users } from 'lucide-react'
 import { readSheet } from 'read-excel-file/browser'
+import { ordinal } from '@/lib/breakdown'
 import { slotLabel } from '@/lib/catalog'
 import { useApp } from '@/lib/store'
-import { scheduleStatus, uid, type Block, type DB, type Dept, type Invigilator, type Schedule, type Session, type Settings, type TimeSlot } from '@/lib/types'
+import { scheduleStatus, uid, type Block, type DB, type Dept, type Instructor, type Invigilator, type Schedule, type Session, type Settings, type TimeSlot } from '@/lib/types'
 import { Field } from './ui-bits'
 import { ImportPanel } from './import-panel'
+import { BreakdownPanel } from './breakdown-panel'
 
 const TABS = [
   { id: 'schedules', label: 'Schedules', icon: CalendarRange },
+  { id: 'semesters', label: 'Semesters', icon: CalendarDays },
   { id: 'places', label: 'Blocks & rooms', icon: Building2 },
   { id: 'times', label: 'Time frames', icon: Clock3 },
   { id: 'batches', label: 'Batches', icon: GraduationCap },
   { id: 'departments', label: 'Departments & contacts', icon: Building2 },
+  { id: 'breakdown', label: 'Course breakdown', icon: BookOpenCheck },
+  { id: 'instructors', label: 'Instructors', icon: Presentation },
   { id: 'import', label: 'Import exams', icon: Upload },
   { id: 'invigilators', label: 'Invigilators', icon: Users },
   { id: 'settings', label: 'Settings & data', icon: Settings2 },
@@ -23,13 +28,16 @@ export function ManagePage() {
   const [tab, setTab] = useState<(typeof TABS)[number]['id']>('schedules')
   return (
     <div>
-      <div className="mb-6"><h1 className="text-[28px] font-semibold tracking-tight">Manage</h1><p className="mt-1 text-[13px] text-muted">Add invigilators, upload the exam pages, then assign staff. Academic year, semester, blocks, batches and time frames are edited here.</p></div>
+      <div className="mb-6"><h1 className="text-[28px] font-semibold tracking-tight">Manage</h1><p className="mt-1 text-[13px] text-muted">Set up semesters, upload each department's course breakdown (PDF), assign instructors to courses, then add invigilators and upload the exam pages.</p></div>
       <div className="mb-6 flex flex-wrap gap-2">{TABS.map((t) => <button key={t.id} onClick={() => setTab(t.id)} className={`btn ${tab === t.id ? 'btn-primary' : ''}`}><t.icon size={15} />{t.label}</button>)}</div>
       {tab === 'schedules' && <Schedules />}
+      {tab === 'semesters' && <Semesters />}
       {tab === 'places' && <Places />}
       {tab === 'times' && <TimeFrames />}
       {tab === 'batches' && <Batches />}
       {tab === 'departments' && <Departments />}
+      {tab === 'breakdown' && <BreakdownPanel />}
+      {tab === 'instructors' && <Instructors />}
       {tab === 'import' && <ImportPanel />}
       {tab === 'invigilators' && <Invigilators />}
       {tab === 'settings' && <SettingsPanel />}
@@ -40,7 +48,7 @@ export function ManagePage() {
 function Schedules() {
   const { db, update, selId, setSelId, toast } = useApp()
   const patch = (id: string, p: Partial<Schedule>) => update((d) => ({ ...d, schedules: d.schedules.map((s) => (s.id === id ? { ...s, ...p } : s)) }))
-  const add = () => { const s: Schedule = { id: uid(), name: 'New schedule', academicYear: db.schedules.at(-1)?.academicYear ?? '', semester: '', exams: [] }; update((d) => ({ ...d, schedules: [...d.schedules, s] })); setSelId(s.id); toast('Schedule added — rename it, then add exams from the Schedule page') }
+  const add = () => { const s: Schedule = { id: uid(), name: 'New schedule', academicYear: db.schedules.at(-1)?.academicYear ?? '', semester: db.semesters[0]?.name ?? '', exams: [] }; update((d) => ({ ...d, schedules: [...d.schedules, s] })); setSelId(s.id); toast('Schedule added — rename it, then add exams from the Schedule page') }
   const dup = (s: Schedule) => { const n: Schedule = { ...s, id: uid(), name: s.name + ' (copy)', exams: s.exams.map((e) => ({ ...e, id: uid(), status: 'Not updated', updatedAt: undefined })) }; update((d) => ({ ...d, schedules: [...d.schedules, n] })); setSelId(n.id); toast('Schedule duplicated with results reset') }
   const del = (s: Schedule) => { if (confirm(`Delete "${s.name}" and its ${s.exams.length} exams?`)) update((d) => ({ ...d, schedules: d.schedules.filter((x) => x.id !== s.id) })) }
   return (
@@ -49,7 +57,7 @@ function Schedules() {
       {db.schedules.map((s) => (
         <div key={s.id} className="card grid items-end gap-3 p-4 lg:grid-cols-[1fr_1fr_1fr_auto]">
           <Field label="Schedule name"><input className="input" value={s.name} onChange={(e) => patch(s.id, { name: e.target.value })} /></Field>
-          <Field label="Semester (e.g. 2nd Semester)"><input className="input" value={s.semester} onChange={(e) => patch(s.id, { semester: e.target.value })} /></Field>
+          <Field label="Semester"><select className="input" value={s.semester} onChange={(e) => patch(s.id, { semester: e.target.value })}><option value="">Not set</option>{[...db.semesters.map((x) => x.name), ...(s.semester && !db.semesters.some((x) => x.name === s.semester) ? [s.semester] : [])].map((n) => <option key={n} value={n}>{n}</option>)}</select></Field>
           <Field label="Academic year (e.g. 2027 / 2020 E.C.)"><input className="input" value={s.academicYear} onChange={(e) => patch(s.id, { academicYear: e.target.value })} /></Field>
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-muted">{s.exams.length} exams · {scheduleStatus(s)}</span>
@@ -68,7 +76,7 @@ function Departments() {
   const { db, update } = useApp()
   const patch = (id: string, p: Partial<Dept>) => update((d) => ({ ...d, departments: d.departments.map((x) => (x.id === id ? { ...x, ...p } : x)) }))
   const add = () => update((d) => ({ ...d, departments: [...d.departments, { id: uid(), name: 'New department', short: 'ND', headName: '', headPhone: '', email: '', info: '' }] }))
-  const del = (x: Dept) => { const used = db.schedules.some((s) => s.exams.some((e) => e.deptId === x.id)); if (used) return alert('This department has exams assigned. Reassign or delete them first.'); if (confirm(`Delete ${x.name}?`)) update((d) => ({ ...d, departments: d.departments.filter((y) => y.id !== x.id) })) }
+  const del = (x: Dept) => { const used = db.schedules.some((s) => s.exams.some((e) => e.deptId === x.id)); if (used) return alert('This department has exams assigned. Reassign or delete them first.'); if (db.breakdowns.some((b) => b.deptId === x.id)) return alert('This department has course breakdowns. Delete them first (Manage → Course breakdown).'); if (confirm(`Delete ${x.name}?`)) update((d) => ({ ...d, departments: d.departments.filter((y) => y.id !== x.id) })) }
   const F = (x: Dept, k: keyof Dept, label: string, ph = '') => <Field label={label}><input className="input" placeholder={ph} value={x[k]} onChange={(e) => patch(x.id, { [k]: e.target.value })} /></Field>
   return (
     <div className="space-y-4">
@@ -152,6 +160,86 @@ function Invigilators() {
       <button className="btn btn-primary" onClick={add}><Plus size={15} /> Add invigilator</button>
     </div>
   )
+}
+
+function Semesters() {
+  const { db, update, toast } = useApp()
+  const rename = (id: string, name: string) => update((d) => {
+    const old = d.semesters.find((x) => x.id === id)?.name
+    return { ...d, semesters: d.semesters.map((x) => (x.id === id ? { ...x, name } : x)), schedules: d.schedules.map((sc) => (old && sc.semester === old ? { ...sc, semester: name } : sc)) }
+  })
+  const del = (id: string) => {
+    const sem = db.semesters.find((x) => x.id === id)
+    if (!sem) return
+    if (db.breakdowns.some((b) => b.semesterId === id)) return alert('Course breakdowns exist for this semester. Delete them first (Manage → Course breakdown).')
+    if (db.schedules.some((sc) => sc.semester === sem.name)) return alert('A schedule uses this semester. Change that schedule first.')
+    update((d) => ({ ...d, semesters: d.semesters.filter((x) => x.id !== id) }))
+  }
+  const count = (id: string) => db.breakdowns.filter((b) => b.semesterId === id).length
+  return <div className="space-y-3">
+    <p className="text-xs text-muted">Semesters are used by course breakdowns and exam schedules. The usual set is 1st, 2nd and 3rd (summer). Renaming a semester also renames it on schedules that use it. Tip: start the name with its number (e.g. “3rd Semester (Summer)”) so PDF headings such as “SEMESTER I” map to the right one.</p>
+    {db.semesters.map((x) => <div key={x.id} className="card flex items-end gap-3 p-4">
+      <Field label="Semester name" className="flex-1"><input className="input" value={x.name} onChange={(e) => rename(x.id, e.target.value)} /></Field>
+      <span className="pb-2.5 text-[11px] text-muted">{count(x.id)} breakdowns</span>
+      <button className="btn btn-danger" aria-label={`Delete ${x.name}`} onClick={() => del(x.id)}><Trash2 size={14} /></button>
+    </div>)}
+    <button className="btn btn-primary" onClick={() => { update((d) => ({ ...d, semesters: [...d.semesters, { id: uid(), name: `${ordinal(d.semesters.length + 1)} Semester` }] })); toast('Semester added — rename it if needed') }}><Plus size={15} /> Add semester</button>
+  </div>
+}
+
+function Instructors() {
+  const { db, update, toast } = useApp()
+  const file = useRef<HTMLInputElement>(null)
+  const patch = (id: string, p: Partial<Instructor>) => update((d) => ({ ...d, instructors: d.instructors.map((x) => (x.id === id ? { ...x, ...p } : x)) }))
+  const load = (id: string) => db.breakdowns.reduce((n, b) => n + b.courses.filter((c) => c.instructorId === id).length, 0)
+  const del = (id: string) => update((d) => ({
+    ...d, instructors: d.instructors.filter((x) => x.id !== id),
+    breakdowns: d.breakdowns.map((b) => ({ ...b, courses: b.courses.map((c) => (c.instructorId === id ? { ...c, instructorId: '' } : c)) })),
+  }))
+  const template = () => {
+    const body = 'Name,Phone,Department\r\nShimels Hailu,+251911000000,Software Engineering\r\nSinodos Girma,+251922000000,Software Engineering\r\n'
+    const a = document.createElement('a'); a.download = 'instructors-template.csv'; a.href = URL.createObjectURL(new Blob(['\ufeff' + body], { type: 'text/csv' })); a.click()
+  }
+  const upload = async (f?: File) => {
+    if (!f) return
+    try {
+      const raw = /\.xlsx$/i.test(f.name) ? ((await readSheet(f)) as (string | number | null)[][]) : parseCsv(await f.text())
+      const hi = raw.findIndex((r) => r.some((c) => /name/i.test(String(c ?? ''))))
+      if (hi < 0) throw new Error('Add a header row with Name, Phone and Department.')
+      const col = (re: RegExp) => raw[hi].findIndex((c) => re.test(String(c ?? '')))
+      const nameI = col(/name/i), phoneI = col(/phone|mobile/i), deptI = col(/department|program/i)
+      let added = 0, updated = 0
+      update((d) => {
+        const list = d.instructors.map((x) => ({ ...x }))
+        added = 0; updated = 0
+        raw.slice(hi + 1).forEach((r) => {
+          const name = String(r[nameI] ?? '').replace(/\s+/g, ' ').trim()
+          if (!name) return
+          const phone = phoneI >= 0 ? String(r[phoneI] ?? '').trim() : ''
+          const dn = deptI >= 0 ? String(r[deptI] ?? '').trim().toLowerCase() : ''
+          const deptId = d.departments.find((x) => x.name.toLowerCase() === dn || x.short.toLowerCase() === dn)?.id ?? ''
+          const hit = list.find((x) => x.name.trim().toLowerCase() === name.toLowerCase())
+          if (hit) { hit.phone = phone || hit.phone; hit.deptId = deptId || hit.deptId; updated++; return }
+          list.push({ id: uid(), name, phone, deptId }); added++
+        })
+        return { ...d, instructors: list }
+      })
+      toast(`${added} instructors added, ${updated} updated`)
+    } catch (e) { toast(e instanceof Error ? e.message : 'Could not read that file', 'bad') }
+  }
+  return <div className="space-y-3">
+    <p className="text-xs text-muted">Add instructors one by one or upload a list (CSV / Excel with Name, Phone, Department). Existing names are updated, not duplicated. Instructors are also added when you upload a course breakdown PDF. Assign them to courses in Course breakdown, or straight from the Assign invigilators page. Invigilators are a separate list.</p>
+    <div className="flex flex-wrap gap-2"><button className="btn" onClick={() => file.current?.click()}><Upload size={15} /> Upload instructor list</button><button className="btn" onClick={template}><Download size={15} /> Template</button><input ref={file} hidden type="file" accept=".csv,.tsv,.xlsx,text/csv" onChange={(e) => { upload(e.target.files?.[0]); e.target.value = '' }} /></div>
+    {db.instructors.map((x) => <div key={x.id} className="card grid items-end gap-3 p-4 md:grid-cols-[1.3fr_1fr_1fr_auto_auto]">
+      <Field label="Full name"><input className="input" value={x.name} onChange={(e) => patch(x.id, { name: e.target.value })} /></Field>
+      <Field label="Phone"><input className="input" value={x.phone} onChange={(e) => patch(x.id, { phone: e.target.value })} /></Field>
+      <Field label="Department"><select className="input" value={x.deptId} onChange={(e) => patch(x.id, { deptId: e.target.value })}><option value="">Any / external</option>{db.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></Field>
+      <span className="pb-2.5 text-[11px] text-muted">{load(x.id)} courses</span>
+      <button className="btn btn-danger" aria-label="Remove" onClick={() => del(x.id)}><Trash2 size={14} /></button>
+    </div>)}
+    {db.instructors.length === 0 && <div className="card p-8 text-center text-xs text-muted">No instructors yet. Upload a list, upload a course breakdown, or add one.</div>}
+    <button className="btn btn-primary" onClick={() => update((d) => ({ ...d, instructors: [...d.instructors, { id: uid(), name: '', phone: '', deptId: '' }] }))}><Plus size={15} /> Add instructor</button>
+  </div>
 }
 
 function Places() {

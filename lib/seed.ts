@@ -1,6 +1,6 @@
 import { hashPassword } from './auth'
 import { DEFAULT_BATCHES, DEFAULT_TIME_SLOTS } from './catalog'
-import type { DB } from './types'
+import { DEFAULT_SEMESTERS, type DB } from './types'
 
 /**
  * Starting data. Everything here can be edited from the app ("Office mode" -> Manage).
@@ -36,6 +36,9 @@ export const seedDB: DB = {
     { id: 'it', name: 'Information Technology', short: 'IT', headName: '', headPhone: '', email: '', info: '' },
     { id: 'se', name: 'Software Engineering', short: 'SE', headName: '', headPhone: '', email: '', info: '' },
   ],
+  semesters: DEFAULT_SEMESTERS,
+  instructors: [],
+  breakdowns: [],
   invigilators: [],
   schedules: [
     { id: 'mid-2026', name: 'Mid-exam', academicYear: '2026 / 2019 E.C.', semester: '1st Semester', exams: [

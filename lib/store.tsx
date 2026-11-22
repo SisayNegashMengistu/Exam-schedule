@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { hashPassword } from './auth'
 import { withCatalog } from './catalog'
 import { seedDB } from './seed'
-import type { Account, DB } from './types'
+import type { Account, Course, DB } from './types'
 
 const KEY = 'ddu-soc-schedule:v2'
 const USER_KEY = 'ddu-soc-user'
@@ -32,6 +32,9 @@ const merge = (p: Partial<DB>): DB => withCatalog({
   schedules: (p.schedules ?? seedDB.schedules).map((s) => ({ ...s, semester: s.semester ?? '' })),
   departments: (p.departments ?? seedDB.departments).map((d: any) => ({ headName: d.deanName ?? '', headPhone: d.deanPhone ?? '', ...d })),
   invigilators: p.invigilators ?? seedDB.invigilators,
+  semesters: p.semesters?.length ? p.semesters : seedDB.semesters,
+  instructors: p.instructors ?? [],
+  breakdowns: (p.breakdowns ?? []).map((b) => ({ ...b, courses: (b.courses ?? []).map((c) => ({ instructorId: '', instructorName: '', prereq: '', ...(c as Partial<Course>) } as Course)) })),
 })
 
 export function AppProvider({ children }: { children: ReactNode }) {
